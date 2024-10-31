@@ -3,9 +3,6 @@ conda create -n vllm_env_v3 python=python=3.12
 echo "vllm environment created successfully"
 conda activate vllm_env_v3
 echo "vllm environment activated successfully"
-#conda install conda-forge::nodejs
-#conda install conda-forge::poetry
-
 
 # 2. Install vllm using pip
 pip install vllm
@@ -16,7 +13,7 @@ pip install --upgrade openai
 conda deactivate
 echo "vllm environment deactivated successfully"
 conda activate vllm_env_v3
-pip list
+# pip list
 echo "vllm installed successfully"
 # 3. Start the vllm server with Llama 3.1 8B Instruct
 CUDA_VISIBLE_DEVICES=2 vllm serve \
