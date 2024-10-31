@@ -1,5 +1,5 @@
 # 1. Create and activate a new conda environment
-conda create -n vllm_env_v3 python=python=3.12
+conda create -n vllm_env_v3 python=python=3.12 -c conda-forge
 echo "vllm environment created successfully"
 conda activate vllm_env_v3
 echo "vllm environment activated successfully"
