@@ -21,7 +21,7 @@ checkout_eval_branch
 
 if [ -z "$AGENT" ]; then
   echo "Agent not specified, use default CodeActAgent"
-  AGENT="CodeActAgent"
+  AGENT="CodeActSWEAgent" # NOTE: edited version
 fi
 
 if [ -z "$MAX_ITER" ]; then
