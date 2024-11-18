@@ -4,16 +4,13 @@ import re
 import tempfile
 from abc import ABC, abstractmethod
 
+from openhands_aci.utils.diff import get_diff
+
 from openhands.core.config import AppConfig
 from openhands.core.logger import openhands_logger as logger
-from openhands.events.action import (
-    FileEditAction,
-    FileReadAction,
-    FileWriteAction,
-)
+from openhands.events.action import FileEditAction, FileReadAction, FileWriteAction
 from openhands.events.observation import (
     ErrorObservation,
-    FatalErrorObservation,
     FileEditObservation,
     FileReadObservation,
     FileWriteObservation,
@@ -23,7 +20,6 @@ from openhands.linter import DefaultLinter
 from openhands.llm.llm import LLM
 from openhands.llm.metrics import Metrics
 from openhands.utils.chunk_localizer import Chunk, get_top_k_chunk_matches
-from openhands.utils.diff import get_diff
 
 SYS_MSG = """Your job is to produce a new version of the file based on the old version and the
 provided draft of the new version. The provided draft may be incomplete (it may skip lines) and/or incorrectly indented. You should try to apply the changes present in the draft to the old version, and output a new version of the file.
@@ -111,14 +107,14 @@ class FileEditRuntimeMixin(FileEditRuntimeInterface):
             model_name='draft_editor:' + llm_config.draft_editor.model
         )
         if llm_config.draft_editor.caching_prompt:
-            logger.info(
+            logger.debug(
                 'It is not recommended to cache draft editor LLM prompts as it may incur high costs for the same prompt. '
                 'Automatically setting caching_prompt=false.'
             )
             llm_config.draft_editor.caching_prompt = False
 
         self.draft_editor_llm = LLM(llm_config.draft_editor, metrics=llm_metrics)
-        logger.info(
+        logger.debug(
             f'[Draft edit functionality] enabled with LLM: {self.draft_editor_llm}'
         )
 
@@ -214,8 +210,8 @@ class FileEditRuntimeMixin(FileEditRuntimeInterface):
             if isinstance(obs, ErrorObservation):
                 return obs
             if not isinstance(obs, FileWriteObservation):
-                return FatalErrorObservation(
-                    f'Fatal Runtime in editing: Expected FileWriteObservation, got {type(obs)}: {str(obs)}'
+                raise ValueError(
+                    f'Expected FileWriteObservation, got {type(obs)}: {str(obs)}'
                 )
             return FileEditObservation(
                 content=get_diff('', action.content, action.path),
@@ -225,8 +221,8 @@ class FileEditRuntimeMixin(FileEditRuntimeInterface):
                 new_content=action.content,
             )
         if not isinstance(obs, FileReadObservation):
-            return FatalErrorObservation(
-                f'Fatal Runtime in editing: Expected FileReadObservation, got {type(obs)}: {str(obs)}'
+            raise ValueError(
+                f'Expected FileReadObservation, got {type(obs)}: {str(obs)}'
             )
 
         original_file_content = obs.content

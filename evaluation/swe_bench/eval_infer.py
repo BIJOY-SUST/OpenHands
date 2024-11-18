@@ -1,6 +1,7 @@
 import os
 import tempfile
 import time
+from functools import partial
 
 import pandas as pd
 from swebench.harness.grading import get_eval_report
@@ -28,6 +29,7 @@ from openhands.core.logger import openhands_logger as logger
 from openhands.core.main import create_runtime
 from openhands.events.action import CmdRunAction
 from openhands.events.observation import CmdOutputObservation
+from openhands.utils.async_utils import call_async_from_sync
 
 # TODO: migrate all swe-bench docker to ghcr.io/openhands
 DOCKER_IMAGE_PREFIX = os.environ.get('EVAL_DOCKER_IMAGE_PREFIX', 'docker.io/xingyaoww/')
@@ -82,6 +84,7 @@ def get_config(instance: pd.Series) -> AppConfig:
             timeout=1800,
             api_key=os.environ.get('ALLHANDS_API_KEY', None),
             remote_runtime_api_url=os.environ.get('SANDBOX_REMOTE_RUNTIME_API_URL'),
+            remote_runtime_init_timeout=3600,
         ),
         # do not mount workspace
         workspace_base=None,
@@ -92,13 +95,28 @@ def get_config(instance: pd.Series) -> AppConfig:
 
 def process_instance(
     instance: pd.Series,
-    metadata: EvalMetadata | None = None,
+    metadata: EvalMetadata,
     reset_logger: bool = True,
+    log_dir: str | None = None,
 ) -> EvalOutput:
+    """
+    Evaluate agent performance on a SWE-bench problem instance.
+
+    Note that this signature differs from the expected input to `run_evaluation`. Use
+    `functools.partial` to provide optional arguments before passing to the evaluation harness.
+
+    Args:
+        log_dir (str | None, default=None): Path to directory where log files will be written. Must
+        be provided if `reset_logger` is set.
+
+    Raises:
+        AssertionError: if the `reset_logger` flag is set without a provided log directory.
+    """
     # Setup the logger properly, so you can run multi-processing to parallelize the evaluation
     if reset_logger:
-        global output_file
-        log_dir = output_file.replace('.jsonl', '.logs')
+        assert (
+            log_dir is not None
+        ), "Can't reset logger without a provided log directory."
         os.makedirs(log_dir, exist_ok=True)
         reset_logger_for_multiprocessing(logger, instance.instance_id, log_dir)
     else:
@@ -125,10 +143,11 @@ def process_instance(
         return EvalOutput(
             instance_id=instance_id,
             test_result=instance['test_result'],
+            metadata=metadata,
         )
 
     runtime = create_runtime(config)
-
+    call_async_from_sync(runtime.connect)
     # Get patch and save it to /tmp/patch.diff
     with tempfile.TemporaryDirectory() as temp_dir:
         # Patch file
@@ -174,6 +193,7 @@ def process_instance(
             return EvalOutput(
                 instance_id=instance_id,
                 test_result=instance['test_result'],
+                metadata=metadata,
             )
         elif 'APPLY_PATCH_PASS' in apply_patch_output:
             logger.info(f'[{instance_id}] {APPLY_PATCH_PASS}:\n{apply_patch_output}')
@@ -238,28 +258,34 @@ def process_instance(
                         # Create a directory structure that matches the expected format
                         # NOTE: this is a hack to make the eval report format consistent
                         # with the original SWE-Bench eval script
-                        log_dir = os.path.join(temp_dir, 'logs', instance_id)
+                        log_dir = os.path.join(temp_dir, 'logs', instance_id.lower())
                         os.makedirs(log_dir, exist_ok=True)
                         test_output_path = os.path.join(log_dir, 'test_output.txt')
                         with open(test_output_path, 'w') as f:
                             f.write(test_output)
-
-                        _report = get_eval_report(
-                            test_spec=test_spec,
-                            prediction={
-                                'model_patch': model_patch,
-                                'instance_id': instance_id,
-                            },
-                            log_path=test_output_path,
-                            include_tests_status=True,
-                        )
-                        report = _report[instance_id]
-                        logger.info(
-                            f"[{instance_id}] report: {report}\nResult for {instance_id}: resolved: {report['resolved']}"
-                        )
-                        instance['test_result']['report']['resolved'] = report[
-                            'resolved'
-                        ]
+                        try:
+                            _report = get_eval_report(
+                                test_spec=test_spec,
+                                prediction={
+                                    'model_patch': model_patch,
+                                    'instance_id': instance_id,
+                                },
+                                log_path=test_output_path,
+                                include_tests_status=True,
+                            )
+                            report = _report[instance_id]
+                            logger.info(
+                                f"[{instance_id}] report: {report}\nResult for {instance_id}: resolved: {report['resolved']}"
+                            )
+                            instance['test_result']['report']['resolved'] = report[
+                                'resolved'
+                            ]
+                        except Exception as e:
+                            logger.error(
+                                f'[{instance_id}] Error when getting eval report: {e}'
+                            )
+                            instance['test_result']['report']['resolved'] = False
+                            instance['test_result']['report']['error_eval'] = True
             else:
                 logger.info(f'[{instance_id}] Error when starting eval:\n{obs.content}')
                 instance['test_result']['report']['error_eval'] = True
@@ -267,6 +293,7 @@ def process_instance(
             return EvalOutput(
                 instance_id=instance_id,
                 test_result=instance['test_result'],
+                metadata=metadata,
             )
         else:
             logger.info(
@@ -334,7 +361,7 @@ if __name__ == '__main__':
 
     if 'model_patch' not in predictions.columns:
         predictions['model_patch'] = predictions['test_result'].apply(
-            lambda x: x['git_patch']
+            lambda x: x.get('git_patch', '')
         )
     assert {'instance_id', 'model_patch'}.issubset(
         set(predictions.columns)
@@ -353,12 +380,26 @@ if __name__ == '__main__':
     output_file = args.input_file.replace('.jsonl', '.swebench_eval.jsonl')
     instances = prepare_dataset(predictions, output_file, args.eval_n_limit)
 
+    # If possible, load the relevant metadata to avoid issues with `run_evaluation`.
+    metadata: EvalMetadata | None = None
+    metadata_filepath = os.path.join(os.path.dirname(args.input_file), 'metadata.json')
+    if os.path.exists(metadata_filepath):
+        with open(metadata_filepath, 'r') as metadata_file:
+            data = metadata_file.read()
+            metadata = EvalMetadata.model_validate_json(data)
+
+    # The evaluation harness constrains the signature of `process_instance_func` but we need to
+    # pass extra information. Build a new function object to avoid issues with multiprocessing.
+    process_instance_func = partial(
+        process_instance, log_dir=output_file.replace('.jsonl', '.logs')
+    )
+
     run_evaluation(
         instances,
-        metadata=None,
+        metadata=metadata,
         output_file=output_file,
         num_workers=args.eval_num_workers,
-        process_instance_func=process_instance,
+        process_instance_func=process_instance_func,
     )
 
     # Load evaluated predictions & print number of resolved predictions
@@ -368,10 +409,12 @@ if __name__ == '__main__':
     def count_report_field(row, field):
         return row['test_result']['report'][field]
 
+    report = {}
     for field in fields:
         count = evaluated_predictions.apply(
             count_report_field, args=(field,), axis=1
         ).sum()
+        report[field] = count
         logger.info(
             f'# {field}: {count} / {len(evaluated_predictions)}. ({count / len(evaluated_predictions):.2%})'
         )

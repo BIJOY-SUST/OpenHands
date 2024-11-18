@@ -7,7 +7,9 @@ NOTE: this will be executed inside the docker sandbox.
 
 import argparse
 import asyncio
+import base64
 import io
+import mimetypes
 import os
 import shutil
 import tempfile
@@ -37,7 +39,6 @@ from openhands.events.action import (
 from openhands.events.observation import (
     CmdOutputObservation,
     ErrorObservation,
-    FatalErrorObservation,
     FileReadObservation,
     FileWriteObservation,
     IPythonRunCellObservation,
@@ -46,14 +47,11 @@ from openhands.events.observation import (
 from openhands.events.serialization import event_from_dict, event_to_dict
 from openhands.runtime.browser import browse
 from openhands.runtime.browser.browser_env import BrowserEnv
-from openhands.runtime.plugins import (
-    ALL_PLUGINS,
-    JupyterPlugin,
-    Plugin,
-)
+from openhands.runtime.plugins import ALL_PLUGINS, JupyterPlugin, Plugin, VSCodePlugin
 from openhands.runtime.utils.bash import BashSession
 from openhands.runtime.utils.files import insert_lines, read_lines
 from openhands.runtime.utils.runtime_init import init_user_and_working_directory
+from openhands.runtime.utils.system import check_port_available
 from openhands.utils.async_utils import wait_all
 
 
@@ -115,7 +113,10 @@ class ActionExecutor:
         return self._initial_pwd
 
     async def ainit(self):
-        await wait_all(self._init_plugin(plugin) for plugin in self.plugins_to_load)
+        await wait_all(
+            (self._init_plugin(plugin) for plugin in self.plugins_to_load),
+            timeout=30,
+        )
 
         # This is a temporary workaround
         # TODO: refactor AgentSkills to be part of JupyterPlugin
@@ -126,15 +127,15 @@ class ActionExecutor:
                     code='from openhands.runtime.plugins.agent_skills.agentskills import *\n'
                 )
             )
-            logger.info(f'AgentSkills initialized: {obs}')
+            logger.debug(f'AgentSkills initialized: {obs}')
 
         await self._init_bash_commands()
-        logger.info('Runtime client initialized.')
+        logger.debug('Runtime client initialized.')
 
     async def _init_plugin(self, plugin: Plugin):
         await plugin.initialize(self.username)
         self.plugins[plugin.name] = plugin
-        logger.info(f'Initializing plugin: {plugin.name}')
+        logger.debug(f'Initializing plugin: {plugin.name}')
 
         if isinstance(plugin, JupyterPlugin):
             await self.run_ipython(
@@ -144,7 +145,7 @@ class ActionExecutor:
             )
 
     async def _init_bash_commands(self):
-        logger.info(f'Initializing by running {len(INIT_COMMANDS)} bash commands...')
+        logger.debug(f'Initializing by running {len(INIT_COMMANDS)} bash commands...')
         for command in INIT_COMMANDS:
             action = CmdRunAction(command=command)
             action.timeout = 300
@@ -156,18 +157,19 @@ class ActionExecutor:
             )
             assert obs.exit_code == 0
 
-        logger.info('Bash init commands completed')
+        logger.debug('Bash init commands completed')
 
     async def run_action(self, action) -> Observation:
-        action_type = action.action
-        logger.debug(f'Running action:\n{action}')
-        observation = await getattr(self, action_type)(action)
-        logger.debug(f'Action output:\n{observation}')
-        return observation
+        async with self.lock:
+            action_type = action.action
+            logger.debug(f'Running action:\n{action}')
+            observation = await getattr(self, action_type)(action)
+            logger.debug(f'Action output:\n{observation}')
+            return observation
 
     async def run(
         self, action: CmdRunAction
-    ) -> CmdOutputObservation | FatalErrorObservation:
+    ) -> CmdOutputObservation | ErrorObservation:
         return self.bash_session.run(action)
 
     async def run_ipython(self, action: IPythonRunCellAction) -> Observation:
@@ -194,10 +196,11 @@ class ActionExecutor:
 
             obs: IPythonRunCellObservation = await _jupyter_plugin.run(action)
             obs.content = obs.content.rstrip()
-            obs.content += (
-                f'\n[Jupyter current working directory: {self.bash_session.pwd}]'
-            )
-            obs.content += f'\n[Jupyter Python interpreter: {_jupyter_plugin.python_interpreter_path}]'
+            if action.include_extra:
+                obs.content += (
+                    f'\n[Jupyter current working directory: {self.bash_session.pwd}]'
+                )
+                obs.content += f'\n[Jupyter Python interpreter: {_jupyter_plugin.python_interpreter_path}]'
             return obs
         else:
             raise RuntimeError(
@@ -216,6 +219,33 @@ class ActionExecutor:
         working_dir = self.bash_session.workdir
         filepath = self._resolve_path(action.path, working_dir)
         try:
+            if filepath.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.gif')):
+                with open(filepath, 'rb') as file:
+                    image_data = file.read()
+                    encoded_image = base64.b64encode(image_data).decode('utf-8')
+                    mime_type, _ = mimetypes.guess_type(filepath)
+                    if mime_type is None:
+                        mime_type = 'image/png'  # default to PNG if mime type cannot be determined
+                    encoded_image = f'data:{mime_type};base64,{encoded_image}'
+
+                return FileReadObservation(path=filepath, content=encoded_image)
+            elif filepath.lower().endswith('.pdf'):
+                with open(filepath, 'rb') as file:
+                    pdf_data = file.read()
+                    encoded_pdf = base64.b64encode(pdf_data).decode('utf-8')
+                    encoded_pdf = f'data:application/pdf;base64,{encoded_pdf}'
+                return FileReadObservation(path=filepath, content=encoded_pdf)
+            elif filepath.lower().endswith(('.mp4', '.webm', '.ogg')):
+                with open(filepath, 'rb') as file:
+                    video_data = file.read()
+                    encoded_video = base64.b64encode(video_data).decode('utf-8')
+                    mime_type, _ = mimetypes.guess_type(filepath)
+                    if mime_type is None:
+                        mime_type = 'video/mp4'  # default to MP4 if MIME type cannot be determined
+                    encoded_video = f'data:{mime_type};base64,{encoded_video}'
+
+                return FileReadObservation(path=filepath, content=encoded_video)
+
             with open(filepath, 'r', encoding='utf-8') as file:
                 lines = read_lines(file.readlines(), action.start, action.end)
         except FileNotFoundError:
@@ -315,6 +345,8 @@ if __name__ == '__main__':
     )
     # example: python client.py 8000 --working-dir /workspace --plugins JupyterRequirement
     args = parser.parse_args()
+    os.environ['VSCODE_PORT'] = str(int(args.port) + 1)
+    assert check_port_available(int(os.environ['VSCODE_PORT']))
 
     plugins_to_load: list[Plugin] = []
     if args.plugins:
@@ -370,13 +402,6 @@ if __name__ == '__main__':
             status_code=422,
             content={'message': 'Invalid request parameters', 'details': exc.errors()},
         )
-
-    @app.middleware('http')
-    async def one_request_at_a_time(request: Request, call_next):
-        assert client is not None
-        async with client.lock:
-            response = await call_next(request)
-        return response
 
     @app.middleware('http')
     async def authenticate_requests(request: Request, call_next):
@@ -444,7 +469,7 @@ if __name__ == '__main__':
                 shutil.unpack_archive(zip_path, full_dest_path)
                 os.remove(zip_path)  # Remove the zip file after extraction
 
-                logger.info(
+                logger.debug(
                     f'Uploaded file {file.filename} and extracted to {destination}'
                 )
             else:
@@ -452,7 +477,7 @@ if __name__ == '__main__':
                 file_path = os.path.join(full_dest_path, file.filename)
                 with open(file_path, 'wb') as buffer:
                     shutil.copyfileobj(file.file, buffer)
-                logger.info(f'Uploaded file {file.filename} to {destination}')
+                logger.debug(f'Uploaded file {file.filename} to {destination}')
 
             return JSONResponse(
                 content={
@@ -468,7 +493,7 @@ if __name__ == '__main__':
 
     @app.get('/download_files')
     async def download_file(path: str):
-        logger.info('Downloading files')
+        logger.debug('Downloading files')
         try:
             if not os.path.isabs(path):
                 raise HTTPException(
@@ -503,6 +528,19 @@ if __name__ == '__main__':
     @app.get('/alive')
     async def alive():
         return {'status': 'ok'}
+
+    # ================================
+    # VSCode-specific operations
+    # ================================
+
+    @app.get('/vscode/connection_token')
+    async def get_vscode_connection_token():
+        assert client is not None
+        if 'vscode' in client.plugins:
+            plugin: VSCodePlugin = client.plugins['vscode']  # type: ignore
+            return {'token': plugin.vscode_connection_token}
+        else:
+            return {'token': None}
 
     # ================================
     # File-specific operations for UI
@@ -586,7 +624,5 @@ if __name__ == '__main__':
             logger.error(f'Error listing files: {e}', exc_info=True)
             return []
 
-    logger.info('Runtime client initialized.')
-
-    logger.info(f'Starting action execution API on port {args.port}')
+    logger.debug(f'Starting action execution API on port {args.port}')
     run(app, host='0.0.0.0', port=args.port)

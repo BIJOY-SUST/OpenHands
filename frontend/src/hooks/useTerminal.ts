@@ -4,15 +4,18 @@ import React from "react";
 import { Command } from "#/state/commandSlice";
 import { getTerminalCommand } from "#/services/terminalService";
 import { parseTerminalOutput } from "#/utils/parseTerminalOutput";
-import { useSocket } from "#/context/socket";
+import { useWsClient } from "#/context/ws-client-provider";
 
 /*
   NOTE: Tests for this hook are indirectly covered by the tests for the XTermTerminal component.
   The reason for this is that the hook exposes a ref that requires a DOM element to be rendered.
 */
 
-export const useTerminal = (commands: Command[] = []) => {
-  const { send } = useSocket();
+export const useTerminal = (
+  commands: Command[] = [],
+  secrets: string[] = [],
+) => {
+  const { send } = useWsClient();
   const terminal = React.useRef<Terminal | null>(null);
   const fitAddon = React.useRef<FitAddon | null>(null);
   const ref = React.useRef<HTMLDivElement>(null);
@@ -131,10 +134,16 @@ export const useTerminal = (commands: Command[] = []) => {
     if (terminal.current && commands.length > 0) {
       // Start writing commands from the last command index
       for (let i = lastCommandIndex.current; i < commands.length; i += 1) {
-        const command = commands[i];
-        terminal.current?.writeln(parseTerminalOutput(command.content));
+        // eslint-disable-next-line prefer-const
+        let { content, type } = commands[i];
 
-        if (command.type === "output") {
+        secrets.forEach((secret) => {
+          content = content.replaceAll(secret, "*".repeat(10));
+        });
+
+        terminal.current?.writeln(parseTerminalOutput(content));
+
+        if (type === "output") {
           terminal.current.write(`\n$ `);
         }
       }

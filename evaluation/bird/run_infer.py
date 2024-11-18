@@ -16,6 +16,7 @@ from tqdm import tqdm
 from evaluation.utils.shared import (
     EvalMetadata,
     EvalOutput,
+    compatibility_for_eval_history_pairs,
     make_metadata,
     prepare_dataset,
     reset_logger_for_multiprocessing,
@@ -33,26 +34,27 @@ from openhands.core.main import create_runtime, run_controller
 from openhands.events.action import CmdRunAction, MessageAction
 from openhands.events.observation import CmdOutputObservation
 from openhands.runtime.base import Runtime
+from openhands.utils.async_utils import call_async_from_sync
 
 
 def codeact_user_response(state: State) -> str:
     msg = (
         'Please continue working on the task on whatever approach you think is suitable.\n'
-        'If you think you have completed the SQL, please run the following command: <execute_bash> exit </execute_bash>.\n'
+        'If you think you have completed the SQL, please finish the interaction using the "finish" tool.\n'
         'IMPORTANT: YOU SHOULD NEVER ASK FOR HUMAN HELP OR USE THE INTERNET TO SOLVE THIS TASK.\n'
     )
     if state.history:
         # check if the agent has tried to talk to the user 3 times, if so, let the agent know it can give up
         user_msgs = [
             event
-            for event in state.history.get_events()
+            for event in state.history
             if isinstance(event, MessageAction) and event.source == 'user'
         ]
         if len(user_msgs) > 2:
             # let the agent know that it can give up when it has tried 3 times
             return (
                 msg
-                + 'If you want to give up, run: <execute_bash> exit </execute_bash>.\n'
+                + 'If you want to give up, use the "finish" tool to finish the interaction.\n'
             )
     return msg
 
@@ -62,7 +64,7 @@ AGENT_CLS_TO_FAKE_USER_RESPONSE_FN = {
 }
 
 AGENT_CLS_TO_INST_SUFFIX = {
-    'CodeActAgent': 'When you think you have fixed the issue through code changes, please run the following command: <execute_bash> exit </execute_bash>.\n'
+    'CodeActAgent': 'When you think you have fixed the issue through code changes, please finish the interaction using the "finish" tool.\n'
 }
 
 
@@ -403,6 +405,7 @@ def process_instance(
     instruction += AGENT_CLS_TO_INST_SUFFIX[metadata.agent_class]
 
     runtime = create_runtime(config)
+    call_async_from_sync(runtime.connect)
     initialize_runtime(runtime, instance)
 
     # Here's how you can run the agent (similar to the `main` function) and get the final task state
@@ -429,7 +432,7 @@ def process_instance(
     # history is now available as a stream of events, rather than list of pairs of (Action, Observation)
     # for compatibility with the existing output format, we can remake the pairs here
     # remove when it becomes unnecessary
-    histories = state.history.compatibility_for_eval_history_pairs()
+    histories = compatibility_for_eval_history_pairs(state.history)
 
     # Save the output
     output = EvalOutput(
