@@ -1,0 +1,8 @@
+provider: vllm
+model_name: Llama-3.1-8b-instruct
+model_path: "/shared_archive/common/models--meta-llama--Llama-3.1-8B-Instruct/snapshots/0e9e39f249a16976918f6564b8830bc894c89659/"
+api_base: "http://localhost:8002/v1"
+api_key: "token-abc123"
+temperature: 0.7
+max_tokens: 4096
+log_completions: true
