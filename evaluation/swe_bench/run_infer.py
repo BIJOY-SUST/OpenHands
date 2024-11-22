@@ -54,7 +54,21 @@ def _get_swebench_workspace_dir_name(instance: pd.Series) -> str:
     return f'{instance.repo}__{instance.version}'.replace('/', '__')
 
 
-def load_llm_config_debug(config_path: str) -> LLMConfig:
+def create_llm_config_from_dict(config_dict: dict[str, Any]) -> LLMConfig:
+    """Create LLMConfig object from dictionary."""
+    return LLMConfig(
+        model=config_dict.get('model'),
+        provider=config_dict.get('provider'),
+        api_base=config_dict.get('api_base'),
+        api_key=config_dict.get('api_key'),
+        temperature=config_dict.get('temperature', 0.7),
+        max_tokens=config_dict.get('max_tokens', 4096),
+        timeout=config_dict.get('timeout', 600),
+        log_completions=config_dict.get('log_completions', True),
+    )
+
+
+def load_llm_config_debug(config_path: str) -> LLMConfig | None:
     logger.info(f'Attempting to load LLM config from: {os.path.abspath(config_path)}')
 
     if not os.path.exists(config_path):
@@ -62,18 +76,18 @@ def load_llm_config_debug(config_path: str) -> LLMConfig:
         return None
 
     try:
-        # First load raw TOML to verify file contents
+        llm_config = get_llm_config_arg(config_path)
+        if llm_config is not None:
+            logger.info('Successfully loaded config using get_llm_config_arg')
+            return llm_config
+
+        logger.info('Attempting manual config loading...')
         with open(config_path, 'r') as f:
             raw_config = toml.load(f)
         logger.info(f'Raw TOML config loaded: {raw_config}')
 
-        # Now try the actual config loading
-        llm_config = get_llm_config_arg(config_path)
-        if llm_config is None:
-            logger.error('get_llm_config_arg returned None')
-            return None
-
-        logger.info(f'Successfully loaded LLM config with model: {llm_config.model}')
+        llm_config = create_llm_config_from_dict(raw_config)
+        logger.info(f'Successfully created LLM config with model: {llm_config.model}')
         return llm_config
 
     except Exception as e:
