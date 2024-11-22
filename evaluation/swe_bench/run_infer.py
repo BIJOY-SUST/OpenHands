@@ -544,7 +544,8 @@ if __name__ == '__main__':
 
     llm_config = None
     if args.llm_config:
-        llm_config = load_llm_config_debug(args.llm_config)
+        # llm_config = load_llm_config_debug(args.llm_config)
+        llm_config = get_llm_config_arg(args.llm_config)
         print('Args LLM config path:', args.llm_config)
         print('LLM Config loaded:', llm_config)
         print('LLM Config type:', type(llm_config))
