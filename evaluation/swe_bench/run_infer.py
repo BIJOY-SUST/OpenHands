@@ -26,6 +26,7 @@ from openhands.controller.state.state import State
 from openhands.core.config import (
     AgentConfig,
     AppConfig,
+    LLMConfig,
     SandboxConfig,
     get_llm_config_arg,
     get_parser,
@@ -164,6 +165,34 @@ def get_config(
     )
     config.set_agent_config(agent_config)
     return config
+
+
+# Add this helper function
+def load_llm_config_debug(config_path: str) -> LLMConfig:
+    logger.info(f'Attempting to load LLM config from: {os.path.abspath(config_path)}')
+
+    if not os.path.exists(config_path):
+        logger.error(f'Config file does not exist at path: {config_path}')
+        return None
+
+    try:
+        # First load raw TOML to verify file contents
+        with open(config_path, 'r') as f:
+            raw_config = toml.load(f)
+        logger.info(f'Raw TOML config loaded: {raw_config}')
+
+        # Now try the actual config loading
+        llm_config = get_llm_config_arg(config_path)
+        if llm_config is None:
+            logger.error('get_llm_config_arg returned None')
+            return None
+
+        logger.info(f'Successfully loaded LLM config with model: {llm_config.model}')
+        return llm_config
+
+    except Exception as e:
+        logger.error(f'Error loading config: {str(e)}')
+        raise
 
 
 def initialize_runtime(
@@ -502,7 +531,7 @@ if __name__ == '__main__':
 
     llm_config = None
     if args.llm_config:
-        llm_config = get_llm_config_arg(args.llm_config)
+        llm_config = load_llm_config_debug(args.llm_config)
         print('Args LLM config path:', args.llm_config)
         print('LLM Config loaded:', llm_config)
         print('LLM Config type:', type(llm_config))
