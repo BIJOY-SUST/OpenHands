@@ -9,15 +9,3 @@ temperature = 0.7
 max_tokens = 4096
 timeout = 600
 log_completions = true
-
-[
-llm.vllm_local
-]
-model = "/shared_archive/common/models--meta-llama--Llama-3.1-8B-Instruct/snapshots/0e9e39f249a16976918f6564b8830bc894c89659/"
-provider = "vllm"
-base_url = "http://localhost:8002/v1/"
-api_key = "token-abc123"
-temperature = 0.7
-max_tokens = 4096
-timeout = 600
-log_completions = true
