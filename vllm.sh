@@ -3,4 +3,4 @@ CUDA_VISIBLE_DEVICES=0 vllm serve \
   --dtype auto \
   --api-key token-abc123 \
   --gpu-memory-utilization 0.9 \
-  --port 8000
+  --port 8002
