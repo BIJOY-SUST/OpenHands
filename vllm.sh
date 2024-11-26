@@ -1,7 +1,7 @@
-CUDA_VISIBLE_DEVICES=0,1,2 vllm serve \
+CUDA_VISIBLE_DEVICES=0,1 vllm serve \
   /work/10363/bbijoy2024/ls6/models--Qwen--Qwen2.5-14B-Instruct/snapshots/cf98f3b3bbb457ad9e2bb7baf9a0125b6b88caa8/ \
   --dtype auto \
   --api-key token-abc123 \
   --gpu-memory-utilization 0.9 \
-  --tensor-parallel-size 3 \
+  --tensor-parallel-size 2 \
   --port 8011
