@@ -94,8 +94,9 @@ class CodeActSWEAgent(Agent):
             content = [TextContent(text=self.action_to_str(action))]
 
             if (
-                self.llm.vision_is_active()
-                and isinstance(action, MessageAction)
+                # self.llm.vision_is_active()
+                # and 
+                isinstance(action, MessageAction)
                 and action.image_urls
             ):
                 content.append(ImageContent(image_urls=action.image_urls))
