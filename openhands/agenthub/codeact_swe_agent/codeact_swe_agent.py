@@ -25,7 +25,8 @@ from openhands.events.observation import (
 from openhands.events.observation.error import ErrorObservation
 from openhands.events.observation.observation import Observation
 from openhands.events.serialization.event import truncate_content
-from openhands.llm.llm import LLM
+# from openhands.llm.llm import LLM
+from openhands.llm.llm_v2 import LLM
 from openhands.runtime.plugins import (
     AgentSkillsRequirement,
     JupyterRequirement,

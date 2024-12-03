@@ -25,7 +25,8 @@ from openhands.events.action.action import Action
 from openhands.events.event import Event
 from openhands.events.observation import AgentStateChangedObservation
 from openhands.events.serialization.event import event_to_trajectory
-from openhands.llm.llm import LLM
+# from openhands.llm.llm import LLM
+from openhands.llm.llm_v2 import LLM
 from openhands.runtime import get_runtime_cls
 from openhands.runtime.base import Runtime
 from openhands.storage import get_file_store

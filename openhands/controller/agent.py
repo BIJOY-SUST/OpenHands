@@ -9,7 +9,8 @@ from openhands.core.exceptions import (
     AgentAlreadyRegisteredError,
     AgentNotRegisteredError,
 )
-from openhands.llm.llm import LLM
+# from openhands.llm.llm import LLM
+from openhands.llm.llm_v2 import LLM
 from openhands.runtime.plugins import PluginRequirement
 
 
