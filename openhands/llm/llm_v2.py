@@ -215,6 +215,7 @@ class LLM(RetryMixin, DebugMixin):
             # Include other parameters as needed
         }
 
+        logger.debug(f'LLM: Sending request to Flask API')
         # Send the request to the Flask API
         response = requests.post(
             self.config.base_url,  # Flask API endpoint
@@ -225,6 +226,7 @@ class LLM(RetryMixin, DebugMixin):
             json=payload,
             timeout=self.config.timeout,
         )
+        logger.debug(f'LLM: Received response from Flask API')
 
         # Check the response status
         if response.status_code != 200:
@@ -240,7 +242,8 @@ class LLM(RetryMixin, DebugMixin):
 
         choices = response_data.get('choices', [])
         usage = response_data.get('usage', {})
-
+        logger.debug(f'LLM: Received {len(choices)} choices')
+        logger.debug(f'LLM: Usage: {usage}')
         # Convert choices to litellm Choice objects
         choices = [
             Choice(
