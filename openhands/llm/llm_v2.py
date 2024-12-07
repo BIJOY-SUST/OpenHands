@@ -14,6 +14,9 @@ with warnings.catch_warnings():
     warnings.simplefilter('ignore')
     import litellm  # Commented out since we're not using it directly now
 
+
+from litellm import Choices, Message, OpenAI
+from litellm.types.utils import CostPerToken, ModelResponse, Usage   
 from litellm import Message as LiteLLMMessage
 from litellm import ModelInfo, PromptTokensDetails
 from litellm import completion as litellm_completion
