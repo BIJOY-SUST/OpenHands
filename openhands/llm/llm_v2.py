@@ -6,6 +6,7 @@ from functools import partial
 from typing import Any
 
 import requests
+from openhands.core.utils import json
 
 from openhands.core.config import LLMConfig
 
@@ -97,7 +98,7 @@ class LLM(RetryMixin, DebugMixin):
         )
         def wrapper(*args, **kwargs):
             """Wrapper for the completion function. Logs the input and output."""
-            from openhands.core.utils import json
+            # from openhands.core.utils import json
 
             messages: list[dict[str, Any]] | dict[str, Any] = []
             mock_function_calling = kwargs.pop('mock_function_calling', False)
@@ -227,6 +228,9 @@ class LLM(RetryMixin, DebugMixin):
             'stop': kwargs.get('stop', None),
             # Include other parameters as needed
         }
+
+        with open(f'payload_{time.time()}.json', 'w') as f:
+            f.write(json.dumps(payload))
 
         logger.debug(f'LLM: Sending request to Flask API')
         # Send the request to the Flask API
