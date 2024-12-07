@@ -11,7 +11,20 @@ from openhands.core.config import LLMConfig
 
 with warnings.catch_warnings():
     warnings.simplefilter('ignore')
-    # import litellm  # Commented out since we're not using it directly now
+    import litellm  # Commented out since we're not using it directly now
+
+from litellm import Message as LiteLLMMessage
+from litellm import ModelInfo, PromptTokensDetails
+from litellm import completion as litellm_completion
+from litellm import completion_cost as litellm_completion_cost
+from litellm.exceptions import (
+    APIConnectionError,
+    APIError,
+    InternalServerError,
+    RateLimitError,
+    ServiceUnavailableError,
+)
+from litellm.types.utils import CostPerToken, ModelResponse, Usage
 
 from openhands.core.exceptions import CloudFlareBlockageError
 from openhands.core.logger import openhands_logger as logger
@@ -234,32 +247,61 @@ class LLM(RetryMixin, DebugMixin):
                 f'Flask API returned status code {response.status_code}: {response.text}'
             )
 
-        # Parse the response
+        # # Parse the response
+        # response_data = response.json()
+
+        # # Build a ModelResponse object similar to what litellm returns
+        # # from litellm.types import ModelResponse, Choice, Message as LiteLLMMessage
+        # # from litellm.types.utils import CostPerToken, ModelResponse, Usage
+
+        # choices = response_data.get('choices', [])
+        # usage = response_data.get('usage', {})
+        # logger.debug(f'LLM: Received {len(choices)} choices')
+        # logger.debug(f'LLM: Usage: {usage}')
+        # # Convert choices to litellm Choice objects
+        # choices = [
+        #     Choice(
+        #         message=LiteLLMMessage(**choice['message']),
+        #         finish_reason=choice.get('finish_reason'),
+        #         index=choice.get('index', 0),
+        #     )
+        #     for choice in choices
+        # ]
+
+        # # Build the ModelResponse object
+        # model_response = ModelResponse(
+        #     choices=choices,
+        #     usage=usage,
+        #     model=response_data.get('model'),
+        #     # Add other fields if necessary
+        # )
+
+        # Assuming response_data is your JSON response
         response_data = response.json()
 
-        # Build a ModelResponse object similar to what litellm returns
-        from litellm.types import ModelResponse, Choice, Message as LiteLLMMessage
+        # Log the number of choices and usage
+        logger.debug(f'LLM: Received {len(response_data.get("choices", []))} choices')
+        logger.debug(f'LLM: Usage: {response_data.get("usage", {})}')
 
-        choices = response_data.get('choices', [])
-        usage = response_data.get('usage', {})
-        logger.debug(f'LLM: Received {len(choices)} choices')
-        logger.debug(f'LLM: Usage: {usage}')
-        # Convert choices to litellm Choice objects
+        # Convert choices to litellm Choices objects
         choices = [
-            Choice(
+            Choices(
                 message=LiteLLMMessage(**choice['message']),
                 finish_reason=choice.get('finish_reason'),
-                index=choice.get('index', 0),
-            )
-            for choice in choices
+                index=choice.get('index', 0)
+            ) for choice in response_data.get('choices', [])
         ]
+
+        # Create Usage object
+        usage = Usage(**response_data.get('usage', {}))
 
         # Build the ModelResponse object
         model_response = ModelResponse(
             choices=choices,
             usage=usage,
             model=response_data.get('model'),
-            # Add other fields if necessary
+            created=response_data.get('created')
+            # Add other fields as necessary
         )
 
         return model_response
