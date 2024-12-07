@@ -202,8 +202,8 @@ class LLM(RetryMixin, DebugMixin):
         else:
             messages = [messages]
 
-        # Serialize messages
-        messages = [message.model_dump() for message in messages]
+        # Serialize messages    # FIXME: Check later
+        # messages = [message.model_dump() for message in messages]
 
         # Build the payload
         payload = {
