@@ -1,4 +1,4 @@
-#!/bin/bash
+i#!/bin/bash
 set -eo pipefail
 
 source "evaluation/utils/version_control.sh"
@@ -21,7 +21,7 @@ checkout_eval_branch
 
 if [ -z "$AGENT" ]; then
   echo "Agent not specified, use default CodeActAgent"
-  AGENT="CodeActAgent"
+  AGENT="CodeActSWEAgent"
 fi
 
 if [ -z "$MAX_ITER" ]; then
